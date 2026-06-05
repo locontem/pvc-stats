@@ -24,13 +24,13 @@ AGE_GROUP_FIXES = {
 }
 
 def normalize_name(name):
-    """Strip middle initials and fix capitalization: 'smith, john A' → 'Smith, John'"""
+    """Strip middle initials: 'Smith, John A' → 'Smith, John'"""
     if not name or ',' not in name:
         return name
     last, rest = name.split(',', 1)
     first_parts = rest.strip().split()
-    first = first_parts[0].capitalize() if first_parts else ''
-    return f"{last.strip().title()}, {first}"
+    first = first_parts[0] if first_parts else ''
+    return f"{last.strip()}, {first}"
 
 def parse_date(s):
     for fmt in ('%m/%d/%Y %H:%M:%S', '%m/%d/%Y', '%Y-%m-%d'):
