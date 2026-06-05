@@ -96,16 +96,20 @@ def convert(input_file, output_file, html_file):
                 rec['swimmer'] = swimmer
             records.append(rec)
 
-    # Build meet options sorted chronologically
+    # Build meet options sorted chronologically.
+    # Key on (meet_name, year) so recurring annual meets (same name, different year)
+    # each get their own entry. Store the earliest date seen for that meet+year pair.
     meet_dates = {}
     for r in records:
-        m, d = r.get('meet',''), r.get('date','')
-        if m and d and (m not in meet_dates or d < meet_dates[m]):
-            meet_dates[m] = d
+        m, d, y = r.get('meet',''), r.get('date',''), r.get('year','')
+        if m and d and y:
+            key = (m, y)
+            if key not in meet_dates or d < meet_dates[key]:
+                meet_dates[key] = d
     meet_options = []
-    for meet, date in sorted(meet_dates.items(), key=lambda x: x[1]):
+    for (meet, _year), date in sorted(meet_dates.items(), key=lambda x: x[1]):
         dt = datetime.strptime(date, '%Y-%m-%d')
-        meet_options.append({'value': meet, 'label': f"{dt.strftime('%b %d, %Y')} — {meet}"})
+        meet_options.append({'value': f"{date}|{meet}", 'label': f"{dt.strftime('%b %d, %Y')} — {meet}"})
 
     # Serialize to compact JSON strings
     raw_data_json    = json.dumps(records,      separators=(',', ':'))
