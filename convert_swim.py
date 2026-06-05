@@ -1,20 +1,23 @@
 """
-PVC Swim Stats — CSV to JSON Converter
----------------------------------------
+PVC Swim Stats — CSV to JSON Converter + HTML Injector
+-------------------------------------------------------
 Usage:
-    python convert_swim.py
+    python convert_swim.py /path/to/ResultsPVC.txt
+    python convert_swim.py /path/to/ResultsPVC.txt --html /path/to/index.html
+    python convert_swim.py /path/to/ResultsPVC.txt --html /path/to/index.html --out swim_data.json
 
-Edit INPUT_FILE and OUTPUT_FILE below to match your setup.
-Run this whenever you have fresh data from Access/Excel.
-The output JSON is ready to paste into pvc_swim_stats.html.
+Reads the input CSV/TXT, converts to JSON, and injects the data
+directly into HTML_FILE — no copy/paste required.
+
+Optionally also writes a standalone JSON file (--out) as a backup.
 """
 
-import csv, json, os
+import argparse, csv, json, os, re, shutil
 from datetime import datetime
 
-# ── CONFIGURE THESE ───────────────────────────────────────────────────────────
-INPUT_FILE  = "ResultsPVC.txt"   # Your exported CSV/TXT from Access or Excel
-OUTPUT_FILE = "swim_data.json"   # Output JSON file
+# ── CONFIGURE THESE DEFAULTS (overridden by command-line args) ────────────────
+DEFAULT_HTML_FILE   = "index.html"       # The HTML file to inject data into
+DEFAULT_OUTPUT_FILE = "swim_data.json"   # (Optional) standalone JSON backup
 # ─────────────────────────────────────────────────────────────────────────────
 
 AGE_GROUP_FIXES = {
@@ -45,7 +48,7 @@ def to_float(v):
     try:    return float(v.strip())
     except: return None
 
-def convert(input_file, output_file):
+def convert(input_file, output_file, html_file):
     if not os.path.exists(input_file):
         print(f"ERROR: Cannot find '{input_file}'")
         print("Make sure the script is in the same folder as your CSV, or update INPUT_FILE.")
@@ -88,7 +91,6 @@ def convert(input_file, output_file):
                 'relay_pos4':    normalize_name(row['Relay Position 4'].strip()),
             }
 
-            # Strip empty strings/None to keep JSON compact (but always keep swimmer)
             rec = {k: v for k, v in rec.items() if v != '' and v is not None}
             if 'swimmer' not in rec:
                 rec['swimmer'] = swimmer
@@ -105,33 +107,81 @@ def convert(input_file, output_file):
         dt = datetime.strptime(date, '%Y-%m-%d')
         meet_options.append({'value': meet, 'label': f"{dt.strftime('%b %d, %Y')} — {meet}"})
 
-    # Write JSON
-    data_str = json.dumps(records, separators=(',', ':'))
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(data_str)
+    # Serialize to compact JSON strings
+    raw_data_json    = json.dumps(records,      separators=(',', ':'))
+    meet_options_json = json.dumps(meet_options, separators=(',', ':'))
 
-    # Write meet options sidecar (optional, for reference)
+    # Write standalone JSON backup
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(raw_data_json)
     with open(output_file.replace('.json', '_meets.json'), 'w') as f:
         json.dump(meet_options, f, indent=2)
+
+    # ── Inject into HTML ──────────────────────────────────────────────────────
+    if not os.path.exists(html_file):
+        print(f"\nWARNING: '{html_file}' not found — skipping HTML injection.")
+        print(f"Standalone JSON written to {output_file}")
+        return
+
+    # Back up the HTML before touching it
+    backup = html_file + ".bak"
+    shutil.copy2(html_file, backup)
+
+    with open(html_file, 'r', encoding='utf-8') as f:
+        html = f.read()
+
+    original_html = html
+
+    # Replace RAW_DATA: matches   const RAW_DATA=[...];
+    html, n_raw = re.subn(
+        r'(const RAW_DATA\s*=\s*)\[.*?\](;)',
+        lambda m: m.group(1) + raw_data_json + m.group(2),
+        html,
+        count=1,
+        flags=re.DOTALL,
+    )
+
+    # Replace MEET_OPTIONS: matches   const MEET_OPTIONS=[...];
+    html, n_meets = re.subn(
+        r'(const MEET_OPTIONS\s*=\s*)\[.*?\](;)',
+        lambda m: m.group(1) + meet_options_json + m.group(2),
+        html,
+        count=1,
+        flags=re.DOTALL,
+    )
+
+    if n_raw == 0:
+        print("WARNING: Could not find 'const RAW_DATA=[...]' in the HTML — data NOT injected.")
+        print("  Make sure the HTML has exactly:  const RAW_DATA=[...]")
+    if n_meets == 0:
+        print("WARNING: Could not find 'const MEET_OPTIONS=[...]' in the HTML — meets NOT injected.")
+
+    if html == original_html:
+        print("\nNothing changed in the HTML (patterns not matched). Check the warnings above.")
+        os.remove(backup)
+        return
+
+    with open(html_file, 'w', encoding='utf-8') as f:
+        f.write(html)
 
     size_kb = os.path.getsize(output_file) / 1024
     unique_swimmers = len(set(r.get('swimmer','') for r in records))
 
     print(f"\n✓ Done!")
     print(f"  {len(records):,} records  |  {unique_swimmers:,} unique swimmers  |  {len(meet_options)} meets")
-    print(f"  Output: {output_file}  ({size_kb:.0f} KB)")
-    print()
-    print("Next steps — paste into pvc_swim_stats.html:")
-    print("  1. Open swim_data.json in VS Code  →  Ctrl+A  →  Ctrl+C")
-    print("  2. Open pvc_swim_stats.html in VS Code")
-    print("  3. Ctrl+F  →  search:  const RAW_DATA=")
-    print("  4. Select everything between the outer [  ] after RAW_DATA=")
-    print("  5. Paste  →  Save  →  refresh browser")
-    print()
-    print("  For meet options (only needed if new meets were added):")
-    print("  6. Open swim_data_meets.json  →  Ctrl+A  →  Ctrl+C")
-    print("  7. In the HTML, find:  const MEET_OPTIONS=")
-    print("  8. Replace the [  ] after it  →  Paste  →  Save")
+    print(f"  JSON backup:  {output_file}  ({size_kb:.0f} KB)")
+    print(f"  HTML backup:  {backup}")
+    print(f"  HTML updated: {html_file}")
+    print(f"\n  Just refresh your browser — no copy/paste needed.")
 
 if __name__ == '__main__':
-    convert(INPUT_FILE, OUTPUT_FILE)
+    parser = argparse.ArgumentParser(
+        description='Convert PVC swim CSV to JSON and inject into index.html'
+    )
+    parser.add_argument('input', help='Path to the exported CSV/TXT file (e.g. /data/ResultsPVC.txt)')
+    parser.add_argument('--html', default=DEFAULT_HTML_FILE,
+                        help=f'Path to index.html to inject data into (default: {DEFAULT_HTML_FILE})')
+    parser.add_argument('--out',  default=DEFAULT_OUTPUT_FILE,
+                        help=f'Path for standalone JSON backup (default: {DEFAULT_OUTPUT_FILE})')
+    args = parser.parse_args()
+    convert(args.input, args.out, args.html)
