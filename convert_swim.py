@@ -1,5 +1,6 @@
 """
 PVC Swim Stats — CSV to JSON Converter + HTML Injector
+Version: 2025-06-11 — includes event_num, event_code fields; (date, meet_name) deduplication
 -------------------------------------------------------
 Usage:
     python convert_swim.py /path/to/ResultsPVC.txt
@@ -68,6 +69,8 @@ def convert(input_file, output_file, html_file):
                 'year':          year,
                 'meet':          row['Meet Name'].strip(),
                 'swimmer':       swimmer,
+                'event_num':     to_float(row['Event .'].strip()),
+                'event_code':    row['Event Code'].strip(),
                 'event_desc':    row['Event Description'].strip(),
                 'event_type':    row['Event Type'].strip(),
                 'gender':        row['Gender'].strip(),
@@ -97,17 +100,20 @@ def convert(input_file, output_file, html_file):
             records.append(rec)
 
     # Build meet options sorted chronologically.
-    # Key on (meet_name, year) so recurring annual meets (same name, different year)
-    # each get their own entry. Store the earliest date seen for that meet+year pair.
-    meet_dates = {}
+    # Key on (date, meet_name) — the true unique identifier for a meet.
+    # Same team name can appear multiple times per year (e.g. two VSL Championship dates),
+    # and the same name recurs across years, so only the date+name combo is truly unique.
+    seen = set()
+    meet_options_raw = []
     for r in records:
-        m, d, y = r.get('meet',''), r.get('date',''), r.get('year','')
-        if m and d and y:
-            key = (m, y)
-            if key not in meet_dates or d < meet_dates[key]:
-                meet_dates[key] = d
+        m, d = r.get('meet',''), r.get('date','')
+        if m and d:
+            key = (d, m)
+            if key not in seen:
+                seen.add(key)
+                meet_options_raw.append((d, m))
     meet_options = []
-    for (meet, _year), date in sorted(meet_dates.items(), key=lambda x: x[1]):
+    for date, meet in sorted(meet_options_raw):
         dt = datetime.strptime(date, '%Y-%m-%d')
         meet_options.append({'value': f"{date}|{meet}", 'label': f"{dt.strftime('%b %d, %Y')} — {meet}"})
 
