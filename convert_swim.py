@@ -1,6 +1,6 @@
 """
 PVC Swim Stats — CSV to JSON Converter + HTML Injector
-Version: 2025-06-11 — includes event_num, event_code fields; (date, meet_name) deduplication
+Version: 2025-06-11b — adds team field; (date, meet_name) deduplication
 -------------------------------------------------------
 Usage:
     python convert_swim.py /path/to/ResultsPVC.txt
@@ -69,6 +69,7 @@ def convert(input_file, output_file, html_file):
                 'year':          year,
                 'meet':          row['Meet Name'].strip(),
                 'swimmer':       swimmer,
+                'team':          row['Team'].strip(),
                 'event_num':     to_float(row['Event .'].strip()),
                 'event_code':    row['Event Code'].strip(),
                 'event_desc':    row['Event Description'].strip(),
